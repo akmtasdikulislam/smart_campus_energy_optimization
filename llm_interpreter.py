@@ -43,14 +43,13 @@ def _get_client():
     if not api_key:
         return None
     try:
-        # http_options is not accepted by every google-genai release; fall back
-        # to the plain constructor if this SDK version does not support it.
-        try:
+        if api_key.startswith("AQ"):
             _client = genai.Client(
-                api_key=api_key,
-                http_options=types.HttpOptions(timeout=REQUEST_TIMEOUT_MS),
+                vertexai=True, 
+                project="gen-lang-client-0778426882",
+                location="us-central1"
             )
-        except TypeError:
+        else:
             _client = genai.Client(api_key=api_key)
     except Exception:
         _client = None
