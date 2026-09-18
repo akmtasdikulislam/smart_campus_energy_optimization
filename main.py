@@ -13,6 +13,7 @@ import os
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from guardrails import validate_all
@@ -32,6 +33,14 @@ app = FastAPI(
     openapi_url=None,
 )
 
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Adjust this to specific origins if needed in production
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
@@ -43,8 +52,10 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
             "error": "invalid_request",
             "message": "Request does not match the required scenario schema.",
             "details": [
-                {"field": ".".join(str(p) for p in err.get("loc", [])),
-                 "issue": err.get("msg", "invalid")}
+                {
+                    "field": ".".join(str(p) for p in err.get("loc", [])),
+                    "issue": err.get("msg", "invalid"),
+                }
                 for err in exc.errors()
             ][:20],
         },
@@ -60,7 +71,10 @@ def health():
 def optimize_energy(req: ScenarioRequest):
     try:
         # 1. LLM interpretation (untrusted)
-        raw_directives = interpret_notes(req.operator_notes)
+        raw_directives = interpret_notes(
+            req.operator_notes,
+            battery_capacity_kwh=req.battery.capacity_kwh,
+        )
 
         # 2. Guardrail validation -> guaranteed-safe directives
         directives = validate_all(
@@ -84,9 +98,7 @@ def optimize_energy(req: ScenarioRequest):
 
         return OptimizeResponse(
             scenario_id=req.scenario_id,
-            directive_interpretation=[
-                DirectiveInterpretation(**d) for d in directives
-            ],
+            directive_interpretation=[DirectiveInterpretation(**d) for d in directives],
             hourly_plan=plan,
             total_grid_kwh=round(total_grid, 4),
             total_cost_bdt=round(total_cost, 4),
