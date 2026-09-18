@@ -1,0 +1,8 @@
+.env
+.idea/
+__pycache__/
+.venv
+sample.json
+output.json
+request.json
+expected_response.json
