@@ -1,12 +1,54 @@
-from fastapi import FastAPI
+"""
+GridWise LLM API.
+
+Two public, unauthenticated endpoints:
+    GET  /health           -> {"status": "ok"}
+    POST /optimize-energy  -> optimized 24-hour schedule
+
+Request flow: Pydantic contract validation -> Gemini interpretation (untrusted)
+-> deterministic guardrails -> MILP optimizer -> replay-verified response.
+"""
+
+import os
+
+from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
-from models import ScenarioRequest, OptimizeResponse, DirectiveInterpretation
-from llm_interpreter import interpret_notes
 from guardrails import validate_all
-from optimizer import solve_schedule, compute_totals, compute_cost
+from llm_interpreter import interpret_notes
+from models import DirectiveInterpretation, OptimizeResponse, ScenarioRequest
+from optimizer import compute_cost, compute_totals, solve_schedule
 
-app = FastAPI(title="GridWise LLM API")
+# Set VALIDATION_ERROR_STATUS=422 to keep FastAPI's default instead.
+VALIDATION_ERROR_STATUS = int(os.environ.get("VALIDATION_ERROR_STATUS", "400"))
+
+# docs/redoc/openapi disabled so the service exposes exactly the two
+# challenge routes and nothing else.
+app = FastAPI(
+    title="GridWise LLM API",
+    docs_url=None,
+    redoc_url=None,
+    openapi_url=None,
+)
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    """Malformed or structurally invalid requests get a controlled error,
+    never a 500 and never a traceback."""
+    return JSONResponse(
+        status_code=VALIDATION_ERROR_STATUS,
+        content={
+            "error": "invalid_request",
+            "message": "Request does not match the required scenario schema.",
+            "details": [
+                {"field": ".".join(str(p) for p in err.get("loc", [])),
+                 "issue": err.get("msg", "invalid")}
+                for err in exc.errors()
+            ][:20],
+        },
+    )
 
 
 @app.get("/health")
@@ -40,19 +82,24 @@ def optimize_energy(req: ScenarioRequest):
             f"Applied directives: {', '.join(applied) if applied else 'none'}."
         )
 
-        response = OptimizeResponse(
+        return OptimizeResponse(
             scenario_id=req.scenario_id,
-            directive_interpretation=[DirectiveInterpretation(**d) for d in directives],
+            directive_interpretation=[
+                DirectiveInterpretation(**d) for d in directives
+            ],
             hourly_plan=plan,
             total_grid_kwh=round(total_grid, 4),
             total_cost_bdt=round(total_cost, 4),
             peak_grid_kwh=round(peak_grid, 4),
             plan_summary=summary,
         )
-        return response
 
-    except Exception as e:
+    except Exception:
+        # No exception text, traceback or secret is ever returned.
         return JSONResponse(
             status_code=500,
-            content={"error": "internal_error", "message": "Failed to compute schedule."},
+            content={
+                "error": "internal_error",
+                "message": "Failed to compute schedule.",
+            },
         )
