@@ -106,7 +106,10 @@ def _extract_json_array(text: str):
     return json.loads(text)
 
 
-def interpret_notes(operator_notes: List[str]) -> List[Dict[str, Any]]:
+def interpret_notes(
+    operator_notes: List[str],
+    battery_capacity_kwh: float
+) -> List[Dict[str, Any]]:
     """
     Returns a list of RAW (untrusted) directive dicts, one per note.
     On any failure - missing key, provider error, timeout, unparsable output -
@@ -118,7 +121,19 @@ def interpret_notes(operator_notes: List[str]) -> List[Dict[str, Any]]:
         return []
 
     notes_block = "\n".join(f"{i}: {n}" for i, n in enumerate(operator_notes))
-    user_prompt = f"Operator notes:\n{notes_block}\n\nReturn the JSON array now."
+    
+    user_prompt = f"""
+Scenario context:
+- Battery capacity: {battery_capacity_kwh} kWh
+
+Operator notes:
+{notes_block}
+
+If a reserve is expressed as a percentage or fraction of battery
+capacity, convert it to absolute kWh using the supplied capacity.
+
+Return the JSON array now.
+"""
 
     try:
         response = client.models.generate_content(

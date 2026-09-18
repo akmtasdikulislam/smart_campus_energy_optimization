@@ -72,7 +72,8 @@ def optimize_energy(req: ScenarioRequest):
     try:
         # 1. LLM interpretation (untrusted)
         raw_directives = interpret_notes(
-            req.operator_notes
+            req.operator_notes,
+            battery_capacity_kwh=req.battery.capacity_kwh,
         )
 
         # 2. Guardrail validation -> guaranteed-safe directives
